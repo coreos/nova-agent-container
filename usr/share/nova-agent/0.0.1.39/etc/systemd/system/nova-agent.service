@@ -1,0 +1,11 @@
+[Unit]
+Description=nova-agent service
+
+[Service]
+Environment=LD_LIBRARY_PATH=/usr/share/nova-agent/1.39.0/lib
+EnvironmentFile=-/etc/nova-agent.env
+ExecStart=/usr/sbin/nova-agent -n -l info /usr/share/nova-agent/nova-agent.py
+
+
+[Install]
+WantedBy=multi-user.target

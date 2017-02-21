@@ -1,0 +1,73 @@
+#!/sbin/runscript
+
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+#
+#  Copyright (c) 2011 Openstack, LLC.
+#  All Rights Reserved.
+#
+#     Licensed under the Apache License, Version 2.0 (the "License"); you may
+#     not use this file except in compliance with the License. You may obtain
+#     a copy of the License at
+#
+#          http://www.apache.org/licenses/LICENSE-2.0
+#
+#     Unless required by applicable law or agreed to in writing, software
+#     distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#     WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#     License for the specific language governing permissions and limitations
+#     under the License.
+
+
+prefix="/usr"
+exec_prefix="${prefix}"
+sbindir="/usr/sbin"
+datadir="${prefix}/share/nova-agent"
+reallibdir="/usr/share/nova-agent/1.39.0/lib"
+
+nova_agent="${sbindir}/nova-agent"
+agent_config="/usr/share/nova-agent/nova-agent.py"
+pidfile="/var/run/nova-agent.pid"
+logfile="/var/log/nova-agent.log"
+loglevel="info"
+
+NOVA_PYTHONPATH=`ls -l $reallibdir | grep '^d' | awk '{print \$NF}'`
+NOVA_PYTHONPATH=`echo $NOVA_PYTHONPATH | grep 'python[0-9]\.[0-9]'`
+NOVA_PYTHONPATH="${reallibdir}/${NOVA_PYTHONPATH}"
+NOVA_PYTHONPATH="${NOVA_PYTHONPATH}:${NOVA_PYTHONPATH}/site-packages"
+
+if [ `which python > /dev/null 2>&1 ; echo $?` -eq 0 ]; then
+  PYTHONPATH="$(python -c 'import sys; print ":".join(sys.path)')"
+fi
+export PYTHONPATH="$NOVA_PYTHONPATH:$PYTHONPATH"
+export PYTHONHOME="$NOVA_PYTHONPATH:$PYTHONPATH"
+
+
+depend() {
+  before net
+  after xe-daemon
+}
+
+start() {
+    ebegin "Starting nova-agent"
+    start-stop-daemon --start --exec ${nova_agent} \
+        -e "PYTHONPATH=${PYTHONPATH}" \
+        --pidfile ${pidfile} \
+        -- -q -p ${pidfile} -o ${logfile} -l ${loglevel} ${agent_config} -S
+    RET=$?
+
+    if [ "x${UUID}" != "x$(/usr/bin/xenstore read name)" ]; then
+        /usr/bin/xenstore write data/host/system-init '{"name":"resetnetwork","value":""}'
+        /usr/bin/xenstore watch -n 1 data/guest/system-init >/dev/null
+        [ "$(/usr/bin/xenstore read data/guest/system-init | wc -l)" -gt "0" ] || eend 1
+        echo "UUID=\"$(/usr/bin/xenstore read name)\"" >> /etc/conf.d/nova-agent
+    fi
+
+    eend $RET
+}
+
+stop() {
+    ebegin "Stopping nova-agent"
+    start-stop-daemon --stop --exec ${nova_agent} \
+        --pidfile ${pidfile} --quiet
+    eend $?
+}
